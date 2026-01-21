@@ -1,0 +1,13 @@
+name = "ai-upscaler"
+main = "index.js"
+compatibility_date = "2024-05-02"
+
+# This binding is what allows your code to use the AI model
+[ai]
+binding = "AI"
+
+# These are placeholders. You should set the actual values 
+# in the Cloudflare Dashboard under Settings > Variables.
+[vars]
+TELEGRAM_TOKEN = "8454486467:AAE73u9PC-GFsHUKbLSCMTU-2UZOJf7fbyc"
+TELEGRAM_CHAT_ID = "-1003610380950"

@@ -1,0 +1,13 @@
+{
+  "name": "ai-upscaler",
+  "version": "1.0.0",
+  "description": "High-quality AI Image Upscaler on Cloudflare",
+  "main": "index.js",
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  },
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  }
+}
